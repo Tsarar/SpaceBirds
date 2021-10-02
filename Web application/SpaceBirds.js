@@ -2089,11 +2089,11 @@ function getGroundStations(groundStations) {
 
 
       // Interval to Update all Satellite Positions
-      var updatePositions = setInterval(function () {
+      var updatePositions = () => {
         if (!updatePermission)
           return;
 
-        for (var indx = 0; indx < satNum; indx += 1) {
+        for (var indx = 0; indx < satNum; indx += 1) { // change here to reduce initial count of space objects
           var timeSlide = $('#timeEvent').jqxSlider('value');
           var now = new Date();
           var time = new Date(now.getTime() + timeSlide * 60000);
@@ -2115,7 +2115,7 @@ function getGroundStations(groundStations) {
           }
         }
         wwd.redraw();
-      }, updateTime * 1.5);
+      };
 
 
       /***
@@ -2394,6 +2394,9 @@ function getGroundStations(groundStations) {
       });
       $('#timeReset').on('click', function () {
         $('#timeEvent').jqxSlider('setValue', 0);
+      });
+      $('#updatePosition').on('click', function () {
+        updatePositions();
       });
 
       $('#orbitValue').html(new Date(now.getTime() + 98 * 60000));
