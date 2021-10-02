@@ -281,13 +281,14 @@ function sanitizeSatellites(objectArray) {
 var grndStationsWorker = new Worker("Workers/groundStationsWorker.js");
 
 grndStationsWorker.postMessage("you go first, groundstations servant!");
-grndStationsWorker.addEventListener('message', function (event) {
+grndStationsWorker.addEventListener('message', async function (event) {
   grndStationsWorker.postMessage('close');
-  getGroundStations(event.data);
+  await getGroundStations(event.data);
 }, false);
 
-function getGroundStations(groundStations) {
+async function getGroundStations(groundStations) {
   var satParserWorker = new Worker("Workers/satelliteParseWorker.js");
+  //await getSatellitesFromAPI()
   satParserWorker.postMessage("work, satellite parser, work!");
   //Retrieval of JSON file data from worker threads. Also, closing such threads.
   satParserWorker.addEventListener('message', function (event) {
@@ -2089,11 +2090,15 @@ function getGroundStations(groundStations) {
 
 
       // Interval to Update all Satellite Positions
-      var updatePositions = () => {
+      var updatePositions = (indexToUpdate) => {
         if (!updatePermission)
           return;
 
         for (var indx = 0; indx < satNum; indx += 1) { // change here to reduce initial count of space objects
+          if (indexToUpdate) {
+            indx = indexToUpdate
+          }
+
           var timeSlide = $('#timeEvent').jqxSlider('value');
           var now = new Date();
           var time = new Date(now.getTime() + timeSlide * 60000);
@@ -2112,6 +2117,100 @@ function getGroundStations(groundStations) {
             everyCurrentPosition[indx].altitude = position.altitude;
           } catch (err) {
             //TODO: Handle deorbited sats
+          }
+
+          if (indexToUpdate) {
+            indx = satNum
+          }
+        }
+        wwd.redraw();
+      };
+
+      var getAndCacheSatellitesInterval;
+
+      var getSatellitesFromAPI = () => {
+        getAndCacheSatellitesInterval = setInterval(function() {
+          var now = new Date();
+          var time = new Date(now.getTime() + timeSlide * 60000);
+          time.setMilliseconds(0);
+
+          $.get(
+            "./../data/TLE.json",
+            {
+              time: time.getUTCMilliseconds(),
+            },
+            onAjaxSuccess
+          );
+           
+          function onAjaxSuccess(data)
+          {
+            localStorage.setItem('sats', data);
+          }
+        })
+      }
+
+      // Interval to Update all Satellite Positions
+      var updatePositions2 = async (indexToUpdate) => {
+        if (!updatePermission)
+          return;
+
+        var timeSlide = $('#timeEvent').jqxSlider('value');
+        var now = new Date();
+        var time = new Date(now.getTime() + timeSlide * 60000);
+        time.setMilliseconds(0);
+        $('#timeValue').html(new Date(now.getTime() + timeSlide * 60000));
+
+        var allSats = localStorage.getItem('sats');
+        var satsByTime = allSats && allSats[time];
+        if (!satsByTime) {
+          localStorage.removeItem('sats');
+          clearInterval(getAndCacheSatellitesInterval);
+          await getSatellitesFromAPI();
+
+          timeSlide = $('#timeEvent').jqxSlider('value');
+          now = new Date();
+          time = new Date(now.getTime() + timeSlide * 60000);
+          $('#timeValue').html(new Date(now.getTime() + timeSlide * 60000));
+  
+          allSats = localStorage.getItem('sats');
+          satsByTime = allSats[time];
+        }
+
+        for (var indx = 0; indx < satsByTime.length; indx += 1) { // change here to reduce initial count of space objects
+          if (indexToUpdate) {
+            indx = indexToUpdate
+          }
+
+          let sat = satsByTime[i];
+          try {
+            var position;
+            if (!sat.latitude){
+              var position = getPosition(satellite.twoline2satrec(satsByTime[indx].tleLine1, satsByTime[indx].tleLine2), time);
+              satVelocity[indx] = getVelocity(satellite.twoline2satrec(satsByTime[indx].tleLine1, satsByTime[indx].tleLine2), time);
+            }
+            else
+            {
+              position = {
+                latitude: sat.latitude,
+                longitude: sat.longitude,
+                altitude: sat.altitude
+              }
+            }
+
+          } catch (err) {
+            console.log(err + ' in updatePositions interval, sat ' + indx + satsByTime[indx].name);
+            continue;
+          }
+          try {
+            everyCurrentPosition[indx].latitude = position.latitude;
+            everyCurrentPosition[indx].longitude = position.longitude;
+            everyCurrentPosition[indx].altitude = position.altitude;
+          } catch (err) {
+            //TODO: Handle deorbited sats
+          }
+
+          if (indexToUpdate) {
+            indx = satNum
           }
         }
         wwd.redraw();
@@ -2395,8 +2494,8 @@ function getGroundStations(groundStations) {
       $('#timeReset').on('click', function () {
         $('#timeEvent').jqxSlider('setValue', 0);
       });
-      $('#updatePosition').on('click', function () {
-        updatePositions();
+      $('#updatePosition').on('click', async function () {
+        await updatePositions();
       });
 
       $('#orbitValue').html(new Date(now.getTime() + 98 * 60000));
@@ -2479,39 +2578,57 @@ function getGroundStations(groundStations) {
         // Move to sat position on click and redefine navigator positioning
       var startFollow;
       var followIndex = 0;
-      var toCurrentPosition = function (ind) {
+      var toCurrentPosition = function (ind, shouldNotStartFollow) {
         endFollow();
         var toggleButtons = document.getElementById('buttonToggle');
         toggleButtons.style.display = "inline";
         var satPos = everyCurrentPosition[ind];
-        //Changes center point of view.
-        wwd.navigator.lookAtLocation.altitude = satPos.altitude;
-        startFollow = window.setInterval(function () {
-          try {
-            var position = getPosition(satellite.twoline2satrec(satData[ind].TLE_LINE1, satData[ind].TLE_LINE2), new Date());
-          } catch (err) {
-            console.log(err + ' in toCurrentPosition, sat ' + ind);
-            //continue;
-          }
-          //change view position
-          wwd.navigator.lookAtLocation.latitude = satPos.latitude;
-          wwd.navigator.lookAtLocation.longitude = satPos.longitude;
-          updateLLA(position);
-        });
+        if (!shouldNotStartFollow) {
+          //Changes center point of view.
+          wwd.navigator.lookAtLocation.altitude = satPos.altitude;
+          startFollow = window.setInterval(function () {
+            try {
+              var position = getPosition(satellite.twoline2satrec(satData[ind].TLE_LINE1, satData[ind].TLE_LINE2), new Date());
+            } catch (err) {
+              console.log(err + ' in toCurrentPosition, sat ' + ind);
+              //continue;
+            }
+            //change view position
+            wwd.navigator.lookAtLocation.latitude = satPos.latitude;
+            wwd.navigator.lookAtLocation.longitude = satPos.longitude;
+            updateLLA(position);
+          });
+        }
         followIndex = ind;
       };
       var endFollow = function () {     //ends startFollow window.setInterval
         clearInterval(startFollow);
       };
 
+      var updatePositionInterval
+      var startUpdatePosition = function() {
+        updatePositionInterval = window.setInterval(function() {
+          updatePositions(followIndex);
+        })
+      } 
+      var stopUpdatePosition = function() {
+        clearInterval(updatePositionInterval);
+      } 
+
       $('#follow').click(function () {
         if ($(this).text() == "FOLLOW OFF") {
           $(this).text("FOLLOW ON");
+          var timeSlide = $('#timeEvent').jqxSlider('value');
+          followHasStartedTime = new Date(now.getTime() + (timeSlide * 60000));
           toCurrentPosition(followIndex);
+          createOrbit(followIndex);
+          startUpdatePosition();
         }
         else {
           $(this).text("FOLLOW OFF");
+          endOrbit();
           endFollow();
+          stopUpdatePosition();
         }
       });
 
@@ -2550,7 +2667,7 @@ function getGroundStations(groundStations) {
 
       //create past and future orbit on click
       var startOrbit;
-      var createOrbit = function (index) {
+      var createOrbit = function (index, savedTime) {
         endOrbit();
         startOrbit = window.setInterval(function () {
           var orbitRange = $('#orbitEvent').jqxSlider('value');
@@ -2562,7 +2679,13 @@ function getGroundStations(groundStations) {
           var pastOrbit = [];
           var futureOrbit = [];
           for (var i = -orbitRangePast; i <= orbitRange; i++) {
-            var time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
+            var time;
+            if (!savedTime) {
+              time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
+            } else {
+              time = new Date(savedTime);
+              time.setMilliseconds(time.getMilliseconds() + (i * 60000));
+            }
             try {
               var position = getPosition(satellite.twoline2satrec(satData[index].TLE_LINE1, satData[index].TLE_LINE2), time);
             } catch (err) {
@@ -2633,7 +2756,9 @@ function getGroundStations(groundStations) {
           revDayPlaceholder.textContent = roundToTwo(extra.meanMotion) + " rev/day";
           semiMajorAxisPlaceholder.textContent = roundToTwo(extra.semiMajorAxis) + " km";
           semiMinorAxisPlaceholder.textContent = roundToTwo(extra.semiMinorAxis) + " km";
-          velocityPlaceholder.textContent = (roundToTwo(satVelocity[index])) + " km/s";
+          var velocityContent = (satVelocity[index] && (roundToTwo(satVelocity[index])) + " km/s")
+          || "Unknown";
+          velocityPlaceholder.textContent = velocityContent;
         });
       };
       var endExtra = function () {
@@ -2657,6 +2782,7 @@ function getGroundStations(groundStations) {
       var highlightedItems = [];
       var satIndex;
       var gsIndex;
+      var followHasStartedTime;
 
       var handleClick = function (recognizer) {
         // The input argument is either an Event or a TapRecognizer. Both have the same properties for determining
@@ -2732,8 +2858,9 @@ function getGroundStations(groundStations) {
                 endHoverOrbit();
                 orbitsHoverLayer.enabled = false;
                 extraData(satIndex);
-                $('#mesh').text("HORIZON ON");
-                meshToCurrentPosition(satIndex);
+                $('#mesh').text("HORIZON OFF");
+                // handle click horizon
+                endMesh();
                 $('#mesh').click(function () {
                   if ($(this).text() == "HORIZON OFF") {
                     $(this).text("HORIZON ON");
@@ -2745,11 +2872,15 @@ function getGroundStations(groundStations) {
                   }
                 });
 
-                $('#follow').text('FOLLOW ON');
+                var timeSlide = $('#timeEvent').jqxSlider('value');
+                followHasStartedTime =  new Date(now.getTime() + (timeSlide * 60000));
 
-                toCurrentPosition(satIndex);
+                // handle click follow
+                $('#follow').text('FOLLOW OFF');
 
-                createOrbit(satIndex);
+                toCurrentPosition(satIndex, true);
+
+                createOrbit(satIndex, followHasStartedTime);
                 $('#orbit').text('ORBIT ON');
                 $('#orbit').click(function () {
                   if ($(this).text() == "ORBIT OFF") {
