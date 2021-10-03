@@ -4,6 +4,8 @@ Web application to display space debris heatmap and more.
 
 Deployment:
 
+You will need to have a web browser (I've used Chrome), Node.js and npm installed
+
 1) Go to SpaceBirds\Web application
 2) Install connect via "npm -i connect"
 3) Install serve-static via "npm -i serve-static"
