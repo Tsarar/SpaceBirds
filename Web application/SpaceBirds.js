@@ -12,6 +12,8 @@ var wwd = new WorldWind.ObjectWindow("canvasOne");
 wwd.navigator.lookAtLocation.altitude = 0;
 wwd.navigator.range = 5e7;
 
+localStorage.removeItem('sats');
+
 //Move view controls
 var viewControlsLayer = new WorldWind.ViewControlsLayer(wwd);
 viewControlsLayer.alignment = new WorldWind.Offset(WorldWind.OFFSET_FRACTION, 0.80, WorldWind.OFFSET_FRACTION, 0.96);
@@ -245,36 +247,52 @@ function getVelocity(satrec, time) {
   return satVelocity;
 }
 
+var highDangerActive;
+var lowDangerActive;
+
 //purifies non-working satellites
 function sanitizeSatellites(objectArray) {
-  var faultySatellites = 0;
-  var resultArray = [];
-  var maxSats = objectArray.length;
-  updateTime = performance.now();
-  var now = new Date();
-  var time = new Date(now.getTime());
-  for (var i = 0; i < maxSats; i += 1) {
-    try {
-      var position = getPosition(satellite.twoline2satrec(objectArray[i].TLE_LINE1, objectArray[i].TLE_LINE2), time);
-      var velocity = getVelocity(satellite.twoline2satrec(objectArray[i].TLE_LINE1, objectArray[i].TLE_LINE2), time);
-
-    } catch (err) {
-     // console.log(objectArray[i].OBJECT_NAME +" is a faulty sat it is " + i);
-      faultySatellites += 1;
-      // objectArray.splice(i,1);
-      // i--;
-      continue;
+  var sats = JSON.parse(localStorage.getItem('sats'));
+  if (!sats) {
+    localStorage.setItem('sats', JSON.stringify(objectArray));
+  } else {
+    if (objectArray.density){
+      sats = sats.concat(objectArray.density)
+      highDangerActive = objectArray.highDangerActive
+      lowDangerActive = objectArray.lowDangerActive
+    } else {
+      sats = sats.concat(objectArray)
     }
-
-    if(typeof objectArray[i].LAUNCH_DATE === "undefined") continue;
-    
-    resultArray.push(objectArray[i]);
+    localStorage.setItem('sats', JSON.stringify(sats));
   }
-  updateTime = performance.now() - updateTime;
-  console.log(faultySatellites);
-  console.log(objectArray.length + " from uncleansed");
-  console.log(resultArray.length + " from cleansed");
-  return resultArray;
+  // var faultySatellites = 0;
+  // var resultArray = [];
+  // var maxSats = objectArray.length;
+  // updateTime = performance.now();
+  // var now = new Date();
+  // var time = new Date(now.getTime());
+  // for (var i = 0; i < maxSats; i += 1) {
+  //   try {
+  //     var position = getPosition(satellite.twoline2satrec(objectArray[i].TLE_LINE1, objectArray[i].TLE_LINE2), time);
+  //     var velocity = getVelocity(satellite.twoline2satrec(objectArray[i].TLE_LINE1, objectArray[i].TLE_LINE2), time);
+
+  //   } catch (err) {
+  //    // console.log(objectArray[i].OBJECT_NAME +" is a faulty sat it is " + i);
+  //     faultySatellites += 1;
+  //     // objectArray.splice(i,1);
+  //     // i--;
+  //     continue;
+  //   }
+
+  //   if(typeof objectArray[i].LAUNCH_DATE === "undefined") continue;
+    
+  //   resultArray.push(objectArray[i]);
+  // }
+  // updateTime = performance.now() - updateTime;
+  // console.log(faultySatellites);
+  // console.log(objectArray.length + " from uncleansed");
+  // console.log(resultArray.length + " from cleansed");
+  // return resultArray;
 }
 
 //retrieves TLE data
@@ -283,11 +301,40 @@ var grndStationsWorker = new Worker("Workers/groundStationsWorker.js");
 grndStationsWorker.postMessage("you go first, groundstations servant!");
 grndStationsWorker.addEventListener('message', async function (event) {
   grndStationsWorker.postMessage('close');
-  await getGroundStations(event.data);
+  await getActive1(event.data);
 }, false);
 
 async function getGroundStations(groundStations) {
   var satParserWorker = new Worker("Workers/satelliteParseWorker.js");
+  //await getSatellitesFromAPI()
+  satParserWorker.postMessage("work, satellite parser, work!");
+  //Retrieval of JSON file data from worker threads. Also, closing such threads.
+  satParserWorker.addEventListener('message', function (event) {
+    //var satData = event.data;
+    satParserWorker.postMessage('close');
+    if (!event.data.density){
+      sanitizeSatellites(event.data);
+    } else {
+      getSatellites(event.data);
+    }
+  }, false);
+}
+
+  async function getActive1(groundStations) {
+    var satParserWorker = new Worker("Workers/satelliteParseWorker.js");
+    //await getSatellitesFromAPI()
+    satParserWorker.postMessage("work, satellite parser, work!");
+    //Retrieval of JSON file data from worker threads. Also, closing such threads.
+    satParserWorker.addEventListener('message', function (event) {
+      //var satData = event.data;
+      satParserWorker.postMessage('close');
+      getDebris(event.data, groundStations);
+    }, false);
+  }
+
+async function getDebris(active, groundStations) {
+  sanitizeSatellites(active);
+  var satParserWorker = new Worker("Workers/satelliteParseWorker2.js");
   //await getSatellitesFromAPI()
   satParserWorker.postMessage("work, satellite parser, work!");
   //Retrieval of JSON file data from worker threads. Also, closing such threads.
@@ -299,8 +346,8 @@ async function getGroundStations(groundStations) {
 
 
   function getSatellites(satellites) {
-    var satPac = sanitizeSatellites(satellites);
-    satPac.satDataString = JSON.stringify(satPac);
+    sanitizeSatellites(satellites);
+    var satPac = JSON.parse(localStorage.getItem('sats'));
 
 //convert degrees into a string for textContent
     function deg2text(deg, letters) {
@@ -1855,23 +1902,28 @@ async function getGroundStations(groundStations) {
         var time = new Date(now.getTime());
 
         try {
-          var velocity = getVelocity(satellite.twoline2satrec(satData[j].TLE_LINE1, satData[j].TLE_LINE2), time);
-          var position = getPosition(satellite.twoline2satrec(satData[j].TLE_LINE1, satData[j].TLE_LINE2), time);
+          // var velocity = getVelocity(satellite.twoline2satrec(satData[j].TLE_LINE1, satData[j].TLE_LINE2), time);
+          // var position = getPosition(satellite.twoline2satrec(satData[j].TLE_LINE1, satData[j].TLE_LINE2), time);
+          var position = {
+            latitude: parseFloat(satPac[j].latitudeDeg),
+            longitude: parseFloat(satPac[j].longitudeDeg),
+            altitude: satPac[j].height * 1000
+          }
         } catch (err) {
           console.log(err + ' in renderSats, sat ' + j +  " " + satPac[j].OBJECT_NAME);
           continue;
         }
         try {
-          satVelocity.push(velocity);
+          // satVelocity.push(velocity);
           currentPosition = new WorldWind.Position(position.latitude,
             position.longitude,
             position.altitude);
         everyCurrentPosition.push(currentPosition);
         satSite.push(satData[j].LAUNCH_SITE);
-        satNames.push(satData[j].OBJECT_NAME);
+        satNames.push(satData[j].norad);
         satOwner.push(satData[j].OWNER);
         satStatus.push(satData[j].OPERATIONAL_STATUS);
-        satDate[j] = satData[j].LAUNCH_DATE.substring(0, 4);
+        // satDate[j] = satData[j].LAUNCH_DATE.substring(0, 4);
         } catch (err) {
           console.log(err + ' in renderSats, sat ' + j);
           console.log(satData[j].OBJECT_NAME);
@@ -1882,19 +1934,61 @@ async function getGroundStations(groundStations) {
         highlightPlacemarkAttributes.imageScale = 0.4;
 
         //add colored image depending on sat type
-        switch (satData[j].OBJECT_TYPE) {
-          case "PAYLOAD":
-            placemarkAttributes.imageSource = "assets/icons/blue_dot.png";
+        switch (satData[j].color) {
+          // case "PAYLOAD":
+          //   placemarkAttributes.imageSource = "assets/icons/blue_dot.png";
+          //   placemarkAttributes.imageScale = 0.3;
+          //   break;
+          // case "ROCKET BODY":
+          //   placemarkAttributes.imageSource = "assets/icons/yellow_dot.png";
+          //   placemarkAttributes.imageScale = 0.3;
+          //   break;
+          case "3":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_Coral_dot_2.png";
             placemarkAttributes.imageScale = 0.3;
             break;
-          case "ROCKET BODY":
-            placemarkAttributes.imageSource = "assets/icons/yellow_dot.png";
+          case "0":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_DarkBlue_dot.png";
+            placemarkAttributes.imageScale = 0.3;
+            break;
+          case "4":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_DarkOrange_dot.png";
+            placemarkAttributes.imageScale = 0.3;
+            break;
+          case "6":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_Gold_dot.png";
+            placemarkAttributes.imageScale = 0.3;
+            break;
+          case "5":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_GoldenRod_dot.png";
+            placemarkAttributes.imageScale = 0.3;
+            break;
+          case "1":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_Indigo_dot.png";
+            placemarkAttributes.imageScale = 0.3;
+            break;
+          case "2":
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_Purple_dot.png.png";
             placemarkAttributes.imageScale = 0.3;
             break;
           default:
-            placemarkAttributes.imageSource = "assets/icons/red_dot.png";
-            placemarkAttributes.imageScale = 0.2;
-            highlightPlacemarkAttributes.imageScale = 0.3;
+            if (lowDangerActive.includes(satData[j].norad)) {
+              placemarkAttributes.imageSource = "assets/icons/blue_dot.png";
+              placemarkAttributes.imageScale = 0.4;
+              highlightPlacemarkAttributes.imageScale = 0.6;
+            } 
+            else if (highDangerActive.includes(satData[j].norad))
+            {
+              placemarkAttributes.imageSource = "assets/icons/green_dot.png";
+              placemarkAttributes.imageScale = 0.4;
+              highlightPlacemarkAttributes.imageScale = 0.6;
+            }
+            else
+            {
+              placemarkAttributes.imageSource = "assets/icons/red_dot.png";
+              placemarkAttributes.imageScale = 0.4;
+              highlightPlacemarkAttributes.imageScale = 0.6;
+            } 
         }
 
         placemarkAttributes.imageOffset = new WorldWind.Offset(
@@ -1913,49 +2007,54 @@ async function getGroundStations(groundStations) {
         placemark.highlightAttributes = highlightPlacemarkAttributes;
 
         //Defines orbit ranges
-        if (satData[j].OBJECT_TYPE === "PAYLOAD") {
-          if (satData[j].ORBIT_TYPE === "Low Earth Orbit") {
-            leoSatLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Middle Earth Orbit") {
-            meoSatLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Geosynchronous") {
-            geoSatLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Highly Elliptical Orbit") {
-            heoSatLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Unclassified") {
-            unclassifiedSatLayer.addRenderable(placemark);
-          } else {
-            console.log(satData[j].ORBIT_TYPE);
-          }
-        } else if (satData[j].OBJECT_TYPE === "ROCKET BODY") {
-          if (satData[j].ORBIT_TYPE === "Low Earth Orbit") {
-            leoRocketLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Middle Earth Orbit") {
-            meoRocketLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Geosynchronous") {
-            geoRocketLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Highly Elliptical Orbit") {
-            heoRocketLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Unclassified") {
-            unclassifiedRocketLayer.addRenderable(placemark);
-          } else {
-            console.log(satData[j].ORBIT_TYPE);
-          }
-        } else if (satData[j].OBJECT_TYPE === "DEBRIS") {
-          if (satData[j].ORBIT_TYPE === "Low Earth Orbit") {
-            leoDebrisLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Middle Earth Orbit") {
-            meoDebrisLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Geosynchronous") {
-            geoDebrisLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Highly Elliptical Orbit") {
-            heoDebrisLayer.addRenderable(placemark);
-          } else if (satData[j].ORBIT_TYPE === "Unclassified") {
-            unclassifiedDebrisLayer.addRenderable(placemark);
-          } else {
-            console.log(satData[j].ORBIT_TYPE);
-          }
-        }
+        // if (satData[j].OBJECT_TYPE === "PAYLOAD") {
+        //   if (satData[j].ORBIT_TYPE === "Low Earth Orbit") {
+        //     leoSatLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Middle Earth Orbit") {
+        //     meoSatLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Geosynchronous") {
+        //     geoSatLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Highly Elliptical Orbit") {
+        //     heoSatLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Unclassified") {
+        //     unclassifiedSatLayer.addRenderable(placemark);
+        //   } else {
+        //     console.log(satData[j].ORBIT_TYPE);
+        //   }
+        // } else if (satData[j].OBJECT_TYPE === "ROCKET BODY") {
+        //   if (satData[j].ORBIT_TYPE === "Low Earth Orbit") {
+        //     leoRocketLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Middle Earth Orbit") {
+        //     meoRocketLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Geosynchronous") {
+        //     geoRocketLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Highly Elliptical Orbit") {
+        //     heoRocketLayer.addRenderable(placemark);
+        //   } else if (satData[j].ORBIT_TYPE === "Unclassified") {
+        //     unclassifiedRocketLayer.addRenderable(placemark);
+        //   } else {
+        //     console.log(satData[j].ORBIT_TYPE);
+        //   }
+        // } else {
+          // if (satData[j].ORBIT_TYPE === "Low Earth Orbit") {
+          //   leoDebrisLayer.addRenderable(placemark);
+          // } else if (satData[j].ORBIT_TYPE === "Middle Earth Orbit") {
+          //   meoDebrisLayer.addRenderable(placemark);
+          // } else if (satData[j].ORBIT_TYPE === "Geosynchronous") {
+          //   geoDebrisLayer.addRenderable(placemark);
+          // } else if (satData[j].ORBIT_TYPE === "Highly Elliptical Orbit") {
+          //   heoDebrisLayer.addRenderable(placemark);
+          // } else if (satData[j].ORBIT_TYPE === "Unclassified") {
+          //   unclassifiedDebrisLayer.addRenderable(placemark);
+          // } else {
+            if (satData[j].color){
+              meoDebrisLayer.addRenderable(placemark);
+            }
+            else {
+              heoSatLayer.addRenderable(placemark);
+            }
+          // }
+        // }
 
         wwd.redraw();
       }
@@ -2128,25 +2227,37 @@ async function getGroundStations(groundStations) {
 
       var getAndCacheSatellitesInterval;
 
-      var getSatellitesFromAPI = () => {
-        getAndCacheSatellitesInterval = setInterval(function() {
+      var getSatellitesFromAPI = async () => {
           var now = new Date();
+          var timeSlide = $('#timeEvent').jqxSlider('value');
           var time = new Date(now.getTime() + timeSlide * 60000);
           time.setMilliseconds(0);
-
-          $.get(
-            "./../data/TLE.json",
-            {
-              time: time.getUTCMilliseconds(),
-            },
-            onAjaxSuccess
-          );
            
-          function onAjaxSuccess(data)
-          {
-            localStorage.setItem('sats', data);
-          }
-        })
+
+          return $.get(
+            // "http://localhost:5001/active",
+            "../response_1633233634066.json",
+            {
+              dateTime: time.toISOString(),
+            }
+          ).then(x => {
+            localStorage.removeItem('sats');
+            localStorage.setItem('sats', JSON.stringify(x));
+            return $.get({
+              url: "../response_1633232686665.json",
+              // url: "http://localhost:5001/space-debris",
+              data: {
+                dateTime: time.toISOString(),
+              },
+              timeout: 0
+          })
+          }).then(x => {
+              var sats = JSON.parse(localStorage.getItem('sats'));
+              sats = sats.concat(x.density)
+              highDangerActive = x.highDangerActive
+              lowDangerActive = x.lowDangerActive
+              localStorage.setItem('sats', JSON.stringify(sats));
+          });
       }
 
       // Interval to Update all Satellite Positions
@@ -2160,45 +2271,32 @@ async function getGroundStations(groundStations) {
         time.setMilliseconds(0);
         $('#timeValue').html(new Date(now.getTime() + timeSlide * 60000));
 
-        var allSats = localStorage.getItem('sats');
-        var satsByTime = allSats && allSats[time];
-        if (!satsByTime) {
-          localStorage.removeItem('sats');
-          clearInterval(getAndCacheSatellitesInterval);
-          await getSatellitesFromAPI();
+        await getSatellitesFromAPI();
+        var allSats = JSON.parse(localStorage.getItem('sats'));
 
-          timeSlide = $('#timeEvent').jqxSlider('value');
-          now = new Date();
-          time = new Date(now.getTime() + timeSlide * 60000);
-          $('#timeValue').html(new Date(now.getTime() + timeSlide * 60000));
-  
-          allSats = localStorage.getItem('sats');
-          satsByTime = allSats[time];
-        }
-
-        for (var indx = 0; indx < satsByTime.length; indx += 1) { // change here to reduce initial count of space objects
+        for (var indx = 0; indx < allSats.length; indx += 1) { // change here to reduce initial count of space objects
           if (indexToUpdate) {
             indx = indexToUpdate
           }
 
-          let sat = satsByTime[i];
+          let sat = allSats[indx];
           try {
             var position;
-            if (!sat.latitude){
-              var position = getPosition(satellite.twoline2satrec(satsByTime[indx].tleLine1, satsByTime[indx].tleLine2), time);
-              satVelocity[indx] = getVelocity(satellite.twoline2satrec(satsByTime[indx].tleLine1, satsByTime[indx].tleLine2), time);
+            if (!sat.latitudeDeg){
+              var position = getPosition(satellite.twoline2satrec(allSats[indx].tleLine1, allSats[indx].tleLine2), time);
+              satVelocity[indx] = getVelocity(satellite.twoline2satrec(allSats[indx].tleLine1, allSats[indx].tleLine2), time);
             }
             else
             {
               position = {
-                latitude: sat.latitude,
-                longitude: sat.longitude,
-                altitude: sat.altitude
+                latitude: parseFloat(sat.latitudeDeg),
+                longitude: parseFloat(sat.longitudeDeg),
+                altitude: sat.height * 1000
               }
             }
 
           } catch (err) {
-            console.log(err + ' in updatePositions interval, sat ' + indx + satsByTime[indx].name);
+            console.log(err + ' in updatePositions interval, sat ' + indx + allSats[indx].name);
             continue;
           }
           try {
@@ -2470,7 +2568,7 @@ async function getGroundStations(groundStations) {
             createCollada(searchSat);
             typePlaceholder.textContent = satData[searchSat].OBJECT_TYPE;
             idPlaceholder.textContent = satData[searchSat].OBJECT_ID;
-            namePlaceholder.textContent = satData[searchSat].OBJECT_NAME;
+            namePlaceholder.textContent = satData[searchSat].norad;
           }
         }
       });
@@ -2495,7 +2593,7 @@ async function getGroundStations(groundStations) {
         $('#timeEvent').jqxSlider('setValue', 0);
       });
       $('#updatePosition').on('click', async function () {
-        await updatePositions();
+        await updatePositions2();
       });
 
       $('#orbitValue').html(new Date(now.getTime() + 98 * 60000));
@@ -2608,7 +2706,7 @@ async function getGroundStations(groundStations) {
       var updatePositionInterval
       var startUpdatePosition = function() {
         updatePositionInterval = window.setInterval(function() {
-          updatePositions(followIndex);
+          updatePositions2(followIndex);
         })
       } 
       var stopUpdatePosition = function() {
@@ -2965,7 +3063,12 @@ async function getGroundStations(groundStations) {
           for (var i = -98; i <= 98; i++) {
             var time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
             try {
-              var position = getPosition(satellite.twoline2satrec(satData[index].TLE_LINE1, satData[index].TLE_LINE2), time);
+              // var position = getPosition(satellite.twoline2satrec(satData[index].TLE_LINE1, satData[index].TLE_LINE2), time);
+              var position = {
+                latitude: parseFloat(satData[index].latitudeDeg),
+                longitude: parseFloat(satData[index].longitudeDeg),
+                altitude: satData[index].height * 1000
+              }
             } catch (err) {
               console.log(err + ' in createHoverOrbit, sat ' + index);
               continue;
@@ -3111,7 +3214,7 @@ function populateGSInfo(groundStation) {
 function populateSatInfo(satellite) {
   typePlaceholder.textContent = satellite.OBJECT_TYPE;
   idPlaceholder.textContent = satellite.OBJECT_ID;
-  namePlaceholder.textContent = satellite.OBJECT_NAME;
+  namePlaceholder.textContent = satellite.norad;
   ownerPlaceholder.textContent = satellite.OWNER;
   launchPlaceholder.textContent = satellite.LAUNCH_SITE;
   orbitPlaceholder.textContent = satellite.ORBIT_TYPE;
