@@ -1968,7 +1968,7 @@ async function getDebris(active, groundStations) {
             placemarkAttributes.imageScale = 0.3;
             break;
           case "2":
-            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_Purple_dot.png.png";
+            placemarkAttributes.imageSource = "assets/icons/SpaceJanitors_Purple_dot.png";
             placemarkAttributes.imageScale = 0.3;
             break;
           default:
@@ -2777,15 +2777,16 @@ async function getDebris(active, groundStations) {
           var pastOrbit = [];
           var futureOrbit = [];
           for (var i = -orbitRangePast; i <= orbitRange; i++) {
-            var time;
-            if (!savedTime) {
-              time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
-            } else {
-              time = new Date(savedTime);
-              time.setMilliseconds(time.getMilliseconds() + (i * 60000));
-            }
+            var time = new Date(Date.parse(satData[index].utcDatetime) + (i * 60000));
+            time.setHours(time.getHours() + 3);
+            // if (!savedTime) {
+            //   time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
+            // } else {
+            //   time = new Date(savedTime);
+            //   time.setMilliseconds(time.getMilliseconds() + (i * 60000));
+            // }
             try {
-              var position = getPosition(satellite.twoline2satrec(satData[index].TLE_LINE1, satData[index].TLE_LINE2), time);
+              var position = getPosition(satellite.twoline2satrec(satData[index].tle1, satData[index].tle2), time);
             } catch (err) {
               console.log(err + ' in createOrbit, sat ' + index);
               continue;
@@ -2834,30 +2835,30 @@ async function getDebris(active, groundStations) {
       var startExtra;
       var extraData = function (index) {
         endExtra();
-        startExtra = window.setInterval(function () {
-          try {
-            var satStuff = satellite.twoline2satrec( //perform and store sat init calcs
-              satData[index].TLE_LINE1, satData[index].TLE_LINE2);
-          } catch (err) {
-            console.log('Possible deorbiting sat: ' + satData[index].NORAD_CAT_ID + ' in startExtra interval');
-          }
-          var extra = {};
-          extra.inclination = satData[index].INCLINATION;  //rads
-          extra.eccentricity = satData[index].ECCENTRICITY;
-          extra.meanMotion = satData[index].MEAN_MOTION;
-          extra.semiMajorAxis = Math.pow(8681663.653 / extra.meanMotion, (2 / 3));
-          extra.semiMinorAxis = extra.semiMajorAxis * Math.sqrt(1 - Math.pow(extra.eccentricity, 2));
-          extra.apogee = satData[index].APOGEE;
-          extra.perigee = satData[index].PERIGEE;
-          extra.period = satData[index].PERIOD;
+        // startExtra = window.setInterval(function () {
+        //   try {
+        //     var satStuff = satellite.twoline2satrec( //perform and store sat init calcs
+        //       satData[index].TLE_LINE1, satData[index].TLE_LINE2);
+        //   } catch (err) {
+        //     console.log('Possible deorbiting sat: ' + satData[index].NORAD_CAT_ID + ' in startExtra interval');
+        //   }
+        //   var extra = {};
+        //   extra.inclination = satData[index].INCLINATION;  //rads
+        //   extra.eccentricity = satData[index].ECCENTRICITY;
+        //   extra.meanMotion = satData[index].MEAN_MOTION;
+        //   extra.semiMajorAxis = Math.pow(8681663.653 / extra.meanMotion, (2 / 3));
+        //   extra.semiMinorAxis = extra.semiMajorAxis * Math.sqrt(1 - Math.pow(extra.eccentricity, 2));
+        //   extra.apogee = satData[index].APOGEE;
+        //   extra.perigee = satData[index].PERIGEE;
+        //   extra.period = satData[index].PERIOD;
 
-          revDayPlaceholder.textContent = roundToTwo(extra.meanMotion) + " rev/day";
-          semiMajorAxisPlaceholder.textContent = roundToTwo(extra.semiMajorAxis) + " km";
-          semiMinorAxisPlaceholder.textContent = roundToTwo(extra.semiMinorAxis) + " km";
-          var velocityContent = (satVelocity[index] && (roundToTwo(satVelocity[index])) + " km/s")
-          || "Unknown";
-          velocityPlaceholder.textContent = velocityContent;
-        });
+        //   revDayPlaceholder.textContent = roundToTwo(extra.meanMotion) + " rev/day";
+        //   semiMajorAxisPlaceholder.textContent = roundToTwo(extra.semiMajorAxis) + " km";
+        //   semiMinorAxisPlaceholder.textContent = roundToTwo(extra.semiMinorAxis) + " km";
+        //   var velocityContent = (satVelocity[index] && (roundToTwo(satVelocity[index])) + " km/s")
+        //   || "Unknown";
+        //   velocityPlaceholder.textContent = velocityContent;
+        // });
       };
       var endExtra = function () {
         clearInterval(startExtra);
