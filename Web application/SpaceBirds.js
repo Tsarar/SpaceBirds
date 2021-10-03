@@ -2600,6 +2600,9 @@ async function getDebris(active, groundStations) {
       $('#updatePosition').on('click', async function () {
         await updatePositions2();
       });
+      $('#goToGraphs').on('click', async function () {
+        window.open('indexGraphs.html', '_blank').focus();
+      });
 
       $('#orbitValue').html(new Date(now.getTime() + 98 * 60000));
       $('#orbitValueMin').html("Date of future orbit path endpoint");
