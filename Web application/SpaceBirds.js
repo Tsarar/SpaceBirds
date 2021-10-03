@@ -1902,13 +1902,13 @@ async function getDebris(active, groundStations) {
         var time = new Date(now.getTime());
 
         try {
-          // var velocity = getVelocity(satellite.twoline2satrec(satData[j].TLE_LINE1, satData[j].TLE_LINE2), time);
-          // var position = getPosition(satellite.twoline2satrec(satData[j].TLE_LINE1, satData[j].TLE_LINE2), time);
-          var position = {
-            latitude: parseFloat(satPac[j].latitudeDeg),
-            longitude: parseFloat(satPac[j].longitudeDeg),
-            altitude: satPac[j].height * 1000
-          }
+          var velocity = getVelocity(satellite.twoline2satrec(satData[j].tle1, satData[j].tle2), time);
+          var position = getPosition(satellite.twoline2satrec(satData[j].tle1, satData[j].tle2), time);
+          // var position = {
+          //   latitude: parseFloat(satPac[j].latitudeDeg),
+          //   longitude: parseFloat(satPac[j].longitudeDeg),
+          //   altitude: satPac[j].height * 1000
+          // }
         } catch (err) {
           console.log(err + ' in renderSats, sat ' + j +  " " + satPac[j].OBJECT_NAME);
           continue;
@@ -2000,6 +2000,10 @@ async function getDebris(active, groundStations) {
           WorldWind.OFFSET_FRACTION, 1.0);
         placemarkAttributes.labelAttributes.color = WorldWind.Color.WHITE;
 
+        if (!everyCurrentPosition[j]){
+          console.warn("Failed to calculate position ", j)
+          continue;
+        }
 
         var placemark = new WorldWind.Placemark(everyCurrentPosition[j]);
         placemark.altitudeMode = WorldWind.RELATIVE_TO_GROUND;
@@ -2235,8 +2239,8 @@ async function getDebris(active, groundStations) {
            
 
           return $.get(
-            // "http://localhost:5001/active",
-            "../response_1633233634066.json",
+            "http://localhost:5001/active",
+            // "../response_1633233634066.json",
             {
               dateTime: time.toISOString(),
             }
@@ -2244,8 +2248,8 @@ async function getDebris(active, groundStations) {
             localStorage.removeItem('sats');
             localStorage.setItem('sats', JSON.stringify(x));
             return $.get({
-              url: "../response_1633232686665.json",
-              // url: "http://localhost:5001/space-debris",
+              // url: "../response_1633232686665.json",
+              url: "http://localhost:5001/space-debris",
               data: {
                 dateTime: time.toISOString(),
               },
@@ -2270,6 +2274,7 @@ async function getDebris(active, groundStations) {
         var time = new Date(now.getTime() + timeSlide * 60000);
         time.setMilliseconds(0);
         $('#timeValue').html(new Date(now.getTime() + timeSlide * 60000));
+        $('#updatePosition').html("UPDATE IN PROGRESS");
 
         await getSatellitesFromAPI();
         var allSats = JSON.parse(localStorage.getItem('sats'));
@@ -2281,19 +2286,18 @@ async function getDebris(active, groundStations) {
 
           let sat = allSats[indx];
           try {
-            var position;
-            if (!sat.latitudeDeg){
-              var position = getPosition(satellite.twoline2satrec(allSats[indx].tleLine1, allSats[indx].tleLine2), time);
-              satVelocity[indx] = getVelocity(satellite.twoline2satrec(allSats[indx].tleLine1, allSats[indx].tleLine2), time);
-            }
-            else
-            {
-              position = {
-                latitude: parseFloat(sat.latitudeDeg),
-                longitude: parseFloat(sat.longitudeDeg),
-                altitude: sat.height * 1000
-              }
-            }
+            // if (!sat.latitudeDeg){
+            var position = getPosition(satellite.twoline2satrec(allSats[indx].tleLine1, allSats[indx].tleLine2), time);
+            satVelocity[indx] = getVelocity(satellite.twoline2satrec(allSats[indx].tleLine1, allSats[indx].tleLine2), time);
+            // }
+            // else
+            // {
+            //   position = {
+            //     latitude: parseFloat(sat.latitudeDeg),
+            //     longitude: parseFloat(sat.longitudeDeg),
+            //     altitude: sat.height * 1000
+            //   }
+            // }
 
           } catch (err) {
             console.log(err + ' in updatePositions interval, sat ' + indx + allSats[indx].name);
@@ -2311,6 +2315,7 @@ async function getDebris(active, groundStations) {
             indx = satNum
           }
         }
+        $('#updatePosition').html("UPDATE ALL POSITIONS");
         wwd.redraw();
       };
 
@@ -2777,14 +2782,14 @@ async function getDebris(active, groundStations) {
           var pastOrbit = [];
           var futureOrbit = [];
           for (var i = -orbitRangePast; i <= orbitRange; i++) {
-            var time = new Date(Date.parse(satData[index].utcDatetime) + (i * 60000));
-            time.setHours(time.getHours() + 3);
-            // if (!savedTime) {
-            //   time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
-            // } else {
-            //   time = new Date(savedTime);
-            //   time.setMilliseconds(time.getMilliseconds() + (i * 60000));
-            // }
+            // var time = new Date(Date.parse(satData[index].utcDatetime) + (i * 60000));
+            // time.setHours(time.getHours() + 3);
+            if (!savedTime) {
+              time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
+            } else {
+              time = new Date(savedTime);
+              time.setMilliseconds(time.getMilliseconds() + (i * 60000));
+            }
             try {
               var position = getPosition(satellite.twoline2satrec(satData[index].tle1, satData[index].tle2), time);
             } catch (err) {
@@ -3064,12 +3069,12 @@ async function getDebris(active, groundStations) {
           for (var i = -98; i <= 98; i++) {
             var time = new Date(now.getTime() + (i * 60000) + (timeSlide * 60000));
             try {
-              // var position = getPosition(satellite.twoline2satrec(satData[index].TLE_LINE1, satData[index].TLE_LINE2), time);
-              var position = {
-                latitude: parseFloat(satData[index].latitudeDeg),
-                longitude: parseFloat(satData[index].longitudeDeg),
-                altitude: satData[index].height * 1000
-              }
+              var position = getPosition(satellite.twoline2satrec(satData[index].tle1, satData[index].tle2), time);
+              // var position = {
+              //   latitude: parseFloat(satData[index].latitudeDeg),
+              //   longitude: parseFloat(satData[index].longitudeDeg),
+              //   altitude: satData[index].height * 1000
+              // }
             } catch (err) {
               console.log(err + ' in createHoverOrbit, sat ' + index);
               continue;
